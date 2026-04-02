@@ -1,18 +1,29 @@
 import asyncio
 import logging
 import re
+import json
+import os
+import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
+import google.generativeai as genai
 
 logging.basicConfig(level=logging.INFO)
+
+TELEGRAM_TOKEN = "8323110038:AAHIz4DD3QiMLnaXapvcYxXQ8jvSwXzcZ2c"
+GEMINI_API_KEY = "AIzaSyDan6LyGrneewAIxctQsXhN55t2ULusxDE"
+
+genai.configure(api_key=GEMINI_API_KEY)
+
+
 try:
     session = AiohttpSession(timeout=60)
 
     bot = Bot(
-        token="8323110038:AAHIz4DD3QiMLnaXapvcYxXQ8jvSwXzcZ2c",
+        token=TELEGRAM_TOKEN,
         session=session,
         default=DefaultBotProperties(parse_mode="HTML")
     )
@@ -70,6 +81,56 @@ FOOD_DB = {
     "масло оливковое": {"calories": 884, "protein": 0, "fat": 100, "carbs": 0},
     "масло подсолнечное": {"calories": 899, "protein": 0, "fat": 99.9, "carbs": 0},
 }
+
+
+
+API_CACHE_FILE = "api_cache.json"
+
+def load_api_cache():
+    """Загружает кэш API запросов из файла"""
+    if os.path.exists(API_CACHE_FILE):
+        with open(API_CACHE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_api_cache(cache):
+    """Сохраняет кэш API запросов в файл"""
+    with open(API_CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
+API_CACHE = load_api_cache()
+
+
+
+MEALS_CACHE_FILE = "meals_cache.json"
+
+def load_meals_cache():
+    """Загружает кэш известных блюд из файла"""
+    if os.path.exists(MEALS_CACHE_FILE):
+        with open(MEALS_CACHE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_meals_cache(cache):
+    """Сохраняет кэш блюд в файл"""
+    with open(MEALS_CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
+MEALS_CACHE = load_meals_cache()
+
+
+LOCAL_MEALS = {
+    "утка по-пекински": {"calories": 308, "protein": 13.5, "fat": 28.6, "carbs": 7},
+    "борщ": {"calories": 50, "protein": 2, "fat": 3, "carbs": 5},
+    "оливье": {"calories": 180, "protein": 5, "fat": 12, "carbs": 8},
+    "цезарь": {"calories": 190, "protein": 12, "fat": 14, "carbs": 6},
+    "пельмени": {"calories": 220, "protein": 9, "fat": 8, "carbs": 25},
+    "шаурма": {"calories": 250, "protein": 12, "fat": 14, "carbs": 18},
+    "пицца маргарита": {"calories": 270, "protein": 11, "fat": 11, "carbs": 30},
+    "суши": {"calories": 140, "protein": 6, "fat": 2, "carbs": 24},
+}
+
+
 
 
 # ========== ФУНКЦИИ ДЛЯ РАСЧЕТА ==========
