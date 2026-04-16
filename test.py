@@ -115,7 +115,7 @@ async def button_back(message: Message):
 @dp.message(lambda message: message.text == "help")
 async def button_help(message: Message):
     await message.answer(
-        'ℹ️ **Как пользоваться ботом:**\n\n'
+        'ℹ**Как пользоваться ботом:**\n\n'
         '1. Нажми кнопку "start"\n'
         '2. Выбери цель: "Сбросить вес" или "Набрать вес"\n'
         '3. Опиши состав блюда (например: 150г курицы, 100г риса)\n'
@@ -148,7 +148,6 @@ async def button_info(message: Message):
 
 async def main():
     logging.info("Бот запущен!")
-    print("🚀 Бот работает! Нажми Ctrl+C для остановки.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
