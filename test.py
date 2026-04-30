@@ -49,6 +49,142 @@ baza = {
     "масло подсолнечное": {"calories": 899, "protein": 0, "fat": 99.9, "carbs": 0},
 }
 
+
+API_CACHE_FILE = "api_cache.json"
+MEALS_CACHE_FILE = "meals_cache.json"
+
+
+def load_api_cache():
+    if os.path.exists(API_CACHE_FILE):
+        with open(API_CACHE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+
+def save_api_cache(cache):
+    with open(API_CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
+
+def load_meals_cache():
+    if os.path.exists(MEALS_CACHE_FILE):
+        with open(MEALS_CACHE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+
+def save_meals_cache(cache):
+    with open(MEALS_CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
+
+API_CACHE = load_api_cache()
+MEALS_CACHE = load_meals_cache()
+
+
+
+LOCAL_MEALS = {
+    "утка по-пекински": {"calories": 308, "protein": 13.5, "fat": 28.6, "carbs": 7},
+    "борщ": {"calories": 50, "protein": 2, "fat": 3, "carbs": 5},
+    "оливье": {"calories": 180, "protein": 5, "fat": 12, "carbs": 8},
+    "цезарь": {"calories": 190, "protein": 12, "fat": 14, "carbs": 6},
+    "пельмени": {"calories": 220, "protein": 9, "fat": 8, "carbs": 25},
+    "шаурма": {"calories": 250, "protein": 12, "fat": 14, "carbs": 18},
+    "пицца маргарита": {"calories": 270, "protein": 11, "fat": 11, "carbs": 30},
+    "суши": {"calories": 140, "protein": 6, "fat": 2, "carbs": 24},
+}
+
+def parse_food_description(text: str):
+    pattern = r'(\d+)\s*[г]?\s*([а-яё\s]+)'
+    matches = re.findall(pattern, text.lower())
+    result = []
+    for weight, food in matches:
+        food = food.strip()
+        found = False
+        for db_food in baza:
+            if db_food in food or food in db_food:
+                result.append((db_food, int(weight)))
+                found = True
+                break
+        if not found:
+            result.append((food, int(weight)))
+    return result
+
+
+def calculate_nutrition(foods):
+    total = {"calories": 0, "protein": 0, "fat": 0, "carbs": 0}
+    unknown_foods = []
+    for food_name, weight in foods:
+        if food_name in baza:
+            data = baza[food_name]
+            ratio = weight / 100
+            total["calories"] += data["calories"] * ratio
+            total["protein"] += data["protein"] * ratio
+            total["fat"] += data["fat"] * ratio
+            total["carbs"] += data["carbs"] * ratio
+        else:
+            unknown_foods.append(food_name)
+    return total, unknown_foods
+
+
+def is_ingredients_format(text: str) -> bool:
+    return bool(re.search(r'\d+\s*[г]', text))
+
+
+
+
+
+async def search_openfoodfacts(product_name: str):
+    cache_key = product_name.lower().strip()
+    if cache_key in API_CACHE:
+        return API_CACHE[cache_key]
+
+    url = "https://world.openfoodfacts.org/cgi/search.pl"
+    params = {
+        "search_terms": product_name,
+        "search_simple": 1,
+        "action": "process",
+        "json": 1,
+        "page_size": 5,
+        "lang": "ru"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, timeout=15) as response:
+                if response.status != 200:
+                    return []
+                data = await response.json()
+                results = []
+                for product in data.get('products', []):
+                    nutriments = product.get('nutriments', {})
+                    calories = nutriments.get('energy-kcal_100g', 0)
+                    if calories == 0:
+                        continue
+                    results.append({
+                        "name": product.get('product_name_ru') or product.get('product_name', 'Неизвестно'),
+                        "brand": product.get('brands', 'Бренд не указан'),
+                        "calories": calories,
+                        "protein": nutriments.get('proteins_100g', 0),
+                        "fat": nutriments.get('fat_100g', 0),
+                        "carbs": nutriments.get('carbohydrates_100g', 0)
+                    })
+                if results:
+                    API_CACHE[cache_key] = results
+                    save_api_cache(API_CACHE)
+                return results
+    except Exception as e:
+        print(f"Ошибка Open Food Facts: {e}")
+        return []
+
+
+
+
+
+
+
+
+
 def get_main_keyboard():
     button_start = KeyboardButton(text="start")
     button_help = KeyboardButton(text="help")
