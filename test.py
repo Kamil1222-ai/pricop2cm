@@ -13,10 +13,13 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 logging.basicConfig(level=logging.INFO)
 TELEGRAM_TOKEN = "8323110038:AAHIz4DD3QiMLnaXapvcYxXQ8jvSwXzcZ2c"
+GEMINI_API_KEY = "AIzaSyDan6LyGrneewAIxctQsXhN55t2ULusxDE"
 bot = Bot(
     token=TELEGRAM_TOKEN,
     default=DefaultBotProperties(parse_mode="HTML")
     )
+genai.configure(api_key=GEMINI_API_KEY)
+
 dp = Dispatcher()
 baza = {
     "курица": {"calories": 165, "protein": 31, "fat": 3.6, "carbs": 0},
@@ -47,6 +50,14 @@ baza = {
     "масло сливочное": {"calories": 748, "protein": 0.5, "fat": 82.5, "carbs": 0.8},
     "масло оливковое": {"calories": 884, "protein": 0, "fat": 100, "carbs": 0},
     "масло подсолнечное": {"calories": 899, "protein": 0, "fat": 99.9, "carbs": 0},
+    "утка по-пекински": {"calories": 308, "protein": 13.5, "fat": 28.6, "carbs": 7},
+    "борщ": {"calories": 50, "protein": 2, "fat": 3, "carbs": 5},
+    "оливье": {"calories": 180, "protein": 5, "fat": 12, "carbs": 8},
+    "цезарь": {"calories": 190, "protein": 12, "fat": 14, "carbs": 6},
+    "пельмени": {"calories": 220, "protein": 9, "fat": 8, "carbs": 25},
+    "шаурма": {"calories": 250, "protein": 12, "fat": 14, "carbs": 18},
+    "пицца маргарита": {"calories": 270, "protein": 11, "fat": 11, "carbs": 30},
+    "суши": {"calories": 140, "protein": 6, "fat": 2, "carbs": 24},
 }
 
 
@@ -83,16 +94,8 @@ MEALS_CACHE = load_meals_cache()
 
 
 
-LOCAL_MEALS = {
-    "утка по-пекински": {"calories": 308, "protein": 13.5, "fat": 28.6, "carbs": 7},
-    "борщ": {"calories": 50, "protein": 2, "fat": 3, "carbs": 5},
-    "оливье": {"calories": 180, "protein": 5, "fat": 12, "carbs": 8},
-    "цезарь": {"calories": 190, "protein": 12, "fat": 14, "carbs": 6},
-    "пельмени": {"calories": 220, "protein": 9, "fat": 8, "carbs": 25},
-    "шаурма": {"calories": 250, "protein": 12, "fat": 14, "carbs": 18},
-    "пицца маргарита": {"calories": 270, "protein": 11, "fat": 11, "carbs": 30},
-    "суши": {"calories": 140, "protein": 6, "fat": 2, "carbs": 24},
-}
+
+
 
 def parse_food_description(text: str):
     pattern = r'(\d+)\s*[г]?\s*([а-яё\s]+)'
@@ -180,6 +183,55 @@ async def search_openfoodfacts(product_name: str):
 
 
 
+async def analyze_meal_with_gemini(meal_name: str):
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"""
+        Ты — диетолог. Пользователь спрашивает о блюде "{meal_name}".
+        Ответь ТОЛЬКО в формате JSON:
+        {{
+            "calories_per_100g": число,
+            "protein_per_100g": число,
+            "fat_per_100g": число,
+            "carbs_per_100g": число
+        }}
+        Если блюдо не известно, поставь все значения в 0.
+        """
+        response = model.generate_content(prompt)
+        result_text = response.text.strip()
+        if "```json" in result_text:
+            result_text = result_text.split("```json")[1].split("```")[0]
+        elif "```" in result_text:
+            result_text = result_text.split("```")[1].split("```")[0]
+        data = json.loads(result_text)
+        if data.get("calories_per_100g", 0) > 0:
+            return {
+                "calories": data["calories_per_100g"],
+                "protein": data["protein_per_100g"],
+                "fat": data["fat_per_100g"],
+                "carbs": data["carbs_per_100g"]
+            }
+        return None
+    except Exception as e:
+        print(f"Ошибка Gemini: {e}")
+        return None
+
+
+async def get_meal_nutrition(meal_name: str):
+    meal_name_lower = meal_name.lower().strip()
+    if meal_name_lower in MEALS_CACHE:
+        return MEALS_CACHE[meal_name_lower]
+    if meal_name_lower in baza:
+        MEALS_CACHE[meal_name_lower] = baza[meal_name_lower]
+        save_meals_cache(MEALS_CACHE)
+        return baza[meal_name_lower]
+    ai_result = await analyze_meal_with_gemini(meal_name_lower)
+    if ai_result and ai_result["calories"] > 0:
+        MEALS_CACHE[meal_name_lower] = ai_result
+        save_meals_cache(MEALS_CACHE)
+        return ai_result
+    return None
+
 
 
 
@@ -196,11 +248,10 @@ def get_main_keyboard():
     return keyboard
 
 def get_dva_keyboard():
-    button_hud = KeyboardButton(text="Сбросить вес")
-    button_nab = KeyboardButton(text="Набрать вес")
+    button_hud = KeyboardButton(text="Узнать КБЖУ")
     button_back = KeyboardButton(text="Назад")
     keyboard = ReplyKeyboardMarkup(
-        keyboard=[[button_hud, button_nab], [button_back]],
+        keyboard=[[button_hud], [button_back]],
         resize_keyboard=True
     )
     return keyboard
@@ -223,7 +274,7 @@ async def button_start(message: Message):
     )
 
 
-@dp.message(lambda message: message.text == 'Сбросить вес')
+@dp.message(lambda message: message.text == 'Узнать КБЖУ')
 async def button_sb(message: Message):
     await message.answer(
         "Опиши состав своего блюда (например: 150г курицы, 100г риса)",
@@ -231,12 +282,8 @@ async def button_sb(message: Message):
     )
 
 
-@dp.message(lambda message: message.text == 'Набрать вес')
-async def button_nb(message: Message):
-    await message.answer(
-        "Опиши состав своего блюда (например: 150г курицы, 100г риса)",
-        parse_mode="Markdown"
-    )
+
+
 
 
 @dp.message(lambda message: message.text == 'Назад')
@@ -253,7 +300,7 @@ async def button_help(message: Message):
     await message.answer(
         'ℹ**Как пользоваться ботом:**\n\n'
         '1. Нажми кнопку "start"\n'
-        '2. Выбери цель: "Сбросить вес" или "Набрать вес"\n'
+        '2. Выбери цель: "Узнать КБЖУ"\n'
         '3. Опиши состав блюда (например: 150г курицы, 100г риса)\n'
         '4. Бот рассчитает калорийность\n\n'
         '**Доступные продукты:**\n'
@@ -273,7 +320,60 @@ async def button_info(message: Message):
 
 
 
+@dp.message()
+async def handle_user_input(message: Message):
+    user_text = message.text.strip()
 
+    buttons = ["start", "help", "info", "Узнать КБЖУ", "Назад"]
+    if user_text in buttons:
+        return
+
+
+    if is_ingredients_format(user_text):
+        foods = parse_food_description(user_text)
+        if not foods:
+            await message.answer(
+                "Не могу распознать ингредиенты. Попробуй так:\n\n"
+                " **Пример:** 150г курицы, 100г риса",
+                parse_mode="Markdown"
+            )
+            return
+        total, unknown = calculate_nutrition(foods)
+        response = "**Результат расчета (по ингредиентам):**\n\n"
+        for food_name, weight in foods:
+            if food_name in baza:
+                data = baza[food_name]
+                ratio = weight / 100
+                response += f"• {food_name.capitalize()} ({weight}г): {int(data['calories'] * ratio)} ккал\n"
+            else:
+                response += f"• {food_name.capitalize()} ({weight}г):  не найден\n"
+        response += f"\n**Итого:**\n Калории: {int(total['calories'])} ккал\nБелки: {total['protein']:.1f} г\n Жиры: {total['fat']:.1f} г\n Углеводы: {total['carbs']:.1f} г"
+        if unknown:
+            response += f"\n Не найдены в базе: {', '.join(unknown)}"
+        await message.answer(response, parse_mode="Markdown")
+        return
+
+
+    await bot.send_chat_action(message.chat.id, action="typing")
+    products = await search_openfoodfacts(user_text)
+    if products:
+        response = f"**Найдено в Open Food Facts для «{user_text}»:**\n\n"
+        for i, p in enumerate(products[:5], 1):
+            response += f"{i}. **{p['name']}**\n   {p['brand']}\n    {int(p['calories'])} ккал |  {p['protein']:.1f}г белков\n   {p['fat']:.1f}г жиров | {p['carbs']:.1f}г углеводов\n\n"
+        response += "*Данные на 100 г продукта*"
+        await message.answer(response, parse_mode="Markdown")
+        return
+
+
+    nutrition = await get_meal_nutrition(user_text)
+    if nutrition and nutrition["calories"] > 0:
+        response = f"🍽**Блюдо:** {user_text.capitalize()}\n\n **Пищевая ценность (на 100 г):**\nКалории: {int(nutrition['calories'])} ккал\nБелки: {nutrition['protein']:.1f} г\n Жиры: {nutrition['fat']:.1f} г\nУглеводы: {nutrition['carbs']:.1f} г\n\n*Это примерные значения. Для точного расчета укажи ингредиенты!*"
+        await message.answer(response, parse_mode="Markdown")
+    else:
+        await message.answer(
+            f"Не могу найти информацию для «{user_text}».\n\nПопробуй:\n• Указать ингредиенты: `150г курицы, 100г риса`\n• Написать на английском: `chicken rice`\n• Или ввести более популярное блюдо (борщ, оливье, пельмени)",
+            parse_mode="Markdown"
+        )
 
 
 
